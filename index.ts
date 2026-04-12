@@ -7,13 +7,20 @@
  * Tools:
  *   captain_search             — Query a collection with natural language
  *   captain_list_collections   — List available collections
+ *   captain_create_collection  — Create a new collection
+ *   captain_delete_collection  — Delete a collection and all its data
+ *   captain_list_documents     — List documents in a collection
+ *   captain_delete_document    — Delete a specific document
+ *   captain_wipe_documents     — Delete all documents in a collection
+ *   captain_job_status         — Check indexing job status
+ *   captain_cancel_job         — Cancel a running indexing job
  *   captain_index_url          — Index public URL(s) or web pages
  *   captain_index_youtube      — Index YouTube video transcripts
  *   captain_index_text         — Index raw text content directly
- *   captain_index_s3           — Index from Amazon S3
- *   captain_index_gcs          — Index from Google Cloud Storage
- *   captain_index_azure        — Index from Azure Blob Storage
- *   captain_index_r2           — Index from Cloudflare R2
+ *   captain_index_s3           — Index from Amazon S3 (bucket/directory/file)
+ *   captain_index_gcs          — Index from Google Cloud Storage (bucket/directory/file)
+ *   captain_index_azure        — Index from Azure Blob Storage (container/directory/file)
+ *   captain_index_r2           — Index from Cloudflare R2 (bucket/directory/file)
  */
 
 import { definePluginEntry } from "openclaw/plugin-sdk/plugin-entry";
@@ -136,6 +143,147 @@ export default definePluginEntry({
         return { content: [{ type: "text", text: `${collections.length} collection(s):\n${lines.join("\n")}` }] };
       },
     });
+
+    // ── captain_create_collection ──────────────────────────────
+    api.registerTool(
+      {
+        name: "captain_create_collection",
+        description: "Create a new Captain collection to store and search documents.",
+        parameters: Type.Object({
+          collection: Type.String({ description: "Collection name (lowercase, hyphens allowed, e.g. 'my-docs')" }),
+        }),
+        async execute(_id, params) {
+          const config = getConfig(api.pluginConfig);
+          logger.info(`[Captain] Creating collection '${params.collection}'`);
+          await captainFetch(config, `collections/${encodeURIComponent(params.collection)}`, { method: "PUT", body: {} });
+          return { content: [{ type: "text", text: `Collection '${params.collection}' created successfully.` }] };
+        },
+      },
+      { optional: true }
+    );
+
+    // ── captain_delete_collection ────────────────────────────────
+    api.registerTool(
+      {
+        name: "captain_delete_collection",
+        description: "Delete a Captain collection and all its indexed documents. This action is irreversible.",
+        parameters: Type.Object({
+          collection: Type.String({ description: "Collection name to delete" }),
+        }),
+        async execute(_id, params) {
+          const config = getConfig(api.pluginConfig);
+          logger.info(`[Captain] Deleting collection '${params.collection}'`);
+          await captainFetch(config, `collections/${encodeURIComponent(params.collection)}`, { method: "DELETE" });
+          return { content: [{ type: "text", text: `Collection '${params.collection}' deleted.` }] };
+        },
+      },
+      { optional: true }
+    );
+
+    // ── captain_list_documents ───────────────────────────────────
+    api.registerTool(
+      {
+        name: "captain_list_documents",
+        description: "List all documents in a Captain collection with file names, types, and chunk counts.",
+        parameters: Type.Object({
+          collection: Type.String({ description: "Collection name" }),
+          limit: Type.Optional(Type.Number({ description: "Max documents to return (default 100)", default: 100 })),
+          offset: Type.Optional(Type.Number({ description: "Pagination offset (default 0)", default: 0 })),
+        }),
+        async execute(_id, params) {
+          const config = getConfig(api.pluginConfig);
+          const qs = `?limit=${params.limit ?? 100}&offset=${params.offset ?? 0}`;
+          const data = await captainFetch(config, `collections/${encodeURIComponent(params.collection)}/documents${qs}`);
+          const docs = data.documents || [];
+          if (docs.length === 0) return { content: [{ type: "text", text: `No documents in '${params.collection}'.` }] };
+          const lines = docs.map((d: any) => `- ${d.filename || d.file_name || "Unknown"} (${d.chunk_count ?? 0} chunks, ID: ${d.file_id || d.document_id || "N/A"})`);
+          const total = data.total_count ?? docs.length;
+          return { content: [{ type: "text", text: `${total} document(s) in '${params.collection}':\n${lines.join("\n")}` }] };
+        },
+      },
+      { optional: true }
+    );
+
+    // ── captain_delete_document ──────────────────────────────────
+    api.registerTool(
+      {
+        name: "captain_delete_document",
+        description: "Delete a specific document from a Captain collection by its document ID.",
+        parameters: Type.Object({
+          collection: Type.String({ description: "Collection name" }),
+          document_id: Type.String({ description: "Document ID to delete (from captain_list_documents)" }),
+        }),
+        async execute(_id, params) {
+          const config = getConfig(api.pluginConfig);
+          logger.info(`[Captain] Deleting document '${params.document_id}' from '${params.collection}'`);
+          await captainFetch(config, `collections/${encodeURIComponent(params.collection)}/documents/${encodeURIComponent(params.document_id)}`, { method: "DELETE" });
+          return { content: [{ type: "text", text: `Document '${params.document_id}' deleted from '${params.collection}'.` }] };
+        },
+      },
+      { optional: true }
+    );
+
+    // ── captain_wipe_documents ───────────────────────────────────
+    api.registerTool(
+      {
+        name: "captain_wipe_documents",
+        description: "Delete ALL documents from a Captain collection, keeping the collection itself. Irreversible.",
+        parameters: Type.Object({
+          collection: Type.String({ description: "Collection name to wipe" }),
+        }),
+        async execute(_id, params) {
+          const config = getConfig(api.pluginConfig);
+          logger.info(`[Captain] Wiping all documents from '${params.collection}'`);
+          const data = await captainFetch(config, `collections/${encodeURIComponent(params.collection)}/documents`, { method: "DELETE" });
+          return { content: [{ type: "text", text: `Wiped ${data.documents_deleted ?? "all"} documents from '${params.collection}'. Collection still exists.` }] };
+        },
+      },
+      { optional: true }
+    );
+
+    // ── captain_job_status ──────────────────────────────────────
+    api.registerTool(
+      {
+        name: "captain_job_status",
+        description: "Check the status of a Captain indexing job. Returns progress, stage, file counts, and errors.",
+        parameters: Type.Object({
+          job_id: Type.String({ description: "Job ID returned by an indexing tool" }),
+        }),
+        async execute(_id, params) {
+          const config = getConfig(api.pluginConfig);
+          const data = await captainFetch(config, `jobs/${encodeURIComponent(params.job_id)}`);
+          const progress = data.progress;
+          let text = `Job: ${params.job_id}\nStatus: ${data.status}`;
+          if (data.progress_message) text += `\nMessage: ${data.progress_message}`;
+          if (progress && typeof progress === "object") {
+            if (progress.current_stage) text += `\nStage: ${progress.current_stage}`;
+            if (progress.files_total != null) text += `\nFiles: ${progress.files_processed ?? 0}/${progress.files_total} processed`;
+            if (progress.files_failed) text += ` (${progress.files_failed} failed)`;
+          }
+          if (data.error) text += `\nError: ${data.error}`;
+          return { content: [{ type: "text", text }] };
+        },
+      },
+      { optional: true }
+    );
+
+    // ── captain_cancel_job ──────────────────────────────────────
+    api.registerTool(
+      {
+        name: "captain_cancel_job",
+        description: "Cancel a running Captain indexing job.",
+        parameters: Type.Object({
+          job_id: Type.String({ description: "Job ID to cancel" }),
+        }),
+        async execute(_id, params) {
+          const config = getConfig(api.pluginConfig);
+          logger.info(`[Captain] Cancelling job '${params.job_id}'`);
+          await captainFetch(config, `jobs/${encodeURIComponent(params.job_id)}`, { method: "DELETE" });
+          return { content: [{ type: "text", text: `Job '${params.job_id}' cancelled.` }] };
+        },
+      },
+      { optional: true }
+    );
 
     // ── captain_index_url ───────────────────────────────────────
     api.registerTool(
@@ -394,6 +542,6 @@ export default definePluginEntry({
       { optional: true }
     );
 
-    logger.info("[Captain] Plugin registered — 9 tools available");
+    logger.info("[Captain] Plugin registered — 16 tools available");
   },
 });

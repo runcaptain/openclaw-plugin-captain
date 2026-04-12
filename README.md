@@ -36,6 +36,25 @@ Get a Captain API key at [runcaptain.com/studio](https://runcaptain.com/studio),
 
 ### Optional (add to `tools.allow`)
 
+**Collections & Documents:**
+
+| Tool | Description |
+|------|-------------|
+| `captain_create_collection` | Create a new collection |
+| `captain_delete_collection` | Delete a collection and all its data |
+| `captain_list_documents` | List documents in a collection with file names and chunk counts |
+| `captain_delete_document` | Delete a specific document by ID |
+| `captain_wipe_documents` | Delete all documents in a collection (keeps the collection) |
+
+**Jobs:**
+
+| Tool | Description |
+|------|-------------|
+| `captain_job_status` | Check indexing job progress, stage, and file counts |
+| `captain_cancel_job` | Cancel a running indexing job |
+
+**Indexing Sources:**
+
 | Tool | Description |
 |------|-------------|
 | `captain_index_url` | Index public URL(s) — documents, web pages, images, video, audio |
@@ -46,11 +65,18 @@ Get a Captain API key at [runcaptain.com/studio](https://runcaptain.com/studio),
 | `captain_index_azure` | Index from Azure Blob Storage — container, directory, or file |
 | `captain_index_r2` | Index from Cloudflare R2 — bucket, directory, or file |
 
-To enable optional tools:
+To enable all optional tools:
 ```json5
 {
   tools: {
     allow: [
+      "captain_create_collection",
+      "captain_delete_collection",
+      "captain_list_documents",
+      "captain_delete_document",
+      "captain_wipe_documents",
+      "captain_job_status",
+      "captain_cancel_job",
       "captain_index_url",
       "captain_index_youtube",
       "captain_index_text",
