@@ -31,7 +31,7 @@ Get a Captain API key at [runcaptain.com/studio](https://runcaptain.com/studio),
 
 | Tool | Description |
 |------|-------------|
-| `captain_search` | Search any collection with natural language. Works across text, images, video, and audio. Supports inference mode for AI-generated answers. |
+| `captain_search` | Search any collection with natural language. Works across text, images, video, and audio. Returns ranked chunks with source citations. |
 | `captain_list_collections` | List all collections in your organization with file counts. |
 
 ### Optional (add to `tools.allow`)

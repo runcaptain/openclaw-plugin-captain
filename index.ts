@@ -84,12 +84,11 @@ export default definePluginEntry({
       name: "captain_search",
       description:
         "Search a Captain collection with natural language. Searches across text documents, images, video, and audio. " +
-        "Returns relevant chunks with source citations. Use inference=true for AI-generated answers, or inference=false for raw search results.",
+        "Returns relevant ranked chunks with source citations and relevance scores.",
       parameters: Type.Object({
         collection: Type.String({ description: "Collection name to search" }),
         query: Type.String({ description: "Natural language search query" }),
-        inference: Type.Optional(Type.Boolean({ description: "If true, returns an AI-generated answer. Default false.", default: false })),
-        top_k: Type.Optional(Type.Number({ description: "Number of results (default 10, only when inference=false)", default: 10 })),
+        top_k: Type.Optional(Type.Number({ description: "Number of results to return (default 10)", default: 10 })),
         rerank: Type.Optional(Type.Boolean({ description: "Enable cross-modal reranking. Required for multimodal collections.", default: true })),
       }),
       async execute(_id, params) {
@@ -98,24 +97,13 @@ export default definePluginEntry({
 
         const body: Record<string, unknown> = {
           query: params.query,
-          inference: params.inference ?? false,
+          inference: false,
+          top_k: params.top_k ?? 10,
           rerank: params.rerank ?? true,
           rerank_model: "gemini",
         };
-        if (!params.inference) body.top_k = params.top_k ?? 10;
 
         const data = await captainFetch(config, `collections/${encodeURIComponent(params.collection)}/query`, { method: "POST", body });
-
-        if (params.inference && data.answer) {
-          let text = data.answer;
-          if (data.sources?.length) {
-            text += "\n\nSources:\n";
-            for (const src of data.sources) {
-              text += `- ${src.filename || src.document_id || "Unknown"} (score: ${src.score?.toFixed(3) ?? "N/A"})\n`;
-            }
-          }
-          return { content: [{ type: "text", text }] };
-        }
 
         const results = data.search_results || data.results || [];
         if (results.length === 0) return { content: [{ type: "text", text: "No results found." }] };
