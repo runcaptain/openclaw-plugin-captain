@@ -67,6 +67,9 @@ To enable optional tools:
 
 ```
 > Search my-docs for "quarterly revenue trends"
+> Search product-catalog for "red sneakers with white sole"
+> Search call-recordings for "customer complaints about billing errors"
+> Search training-videos for "how to configure SSO settings"
 > Index https://example.com/report.pdf into my-docs
 > Index this YouTube video into training-videos: https://youtube.com/watch?v=abc123
 > Index my S3 bucket "company-data" directory "reports/2026" into financial-docs
