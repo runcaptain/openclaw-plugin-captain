@@ -1,5 +1,5 @@
 {
-  "name": "@runcaptain/openclaw-captain",
+  "name": "@captain-sdk/openclaw-captain",
   "version": "1.0.0",
   "description": "Captain multimodal search plugin for OpenClaw — search text, images, video, and audio with natural language",
   "type": "module",
