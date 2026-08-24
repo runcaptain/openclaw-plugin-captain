@@ -21,6 +21,20 @@
  *   captain_index_gcs          — Index from Google Cloud Storage (bucket/directory/file)
  *   captain_index_azure        — Index from Azure Blob Storage (container/directory/file)
  *   captain_index_r2           — Index from Cloudflare R2 (bucket/directory/file)
+ *
+ * v3 tools (documents, chunks, relations):
+ *   captain_list_documents_v3   — List documents in a collection (v3, richer than v2 list)
+ *   captain_get_document_v3     — Get a document, or a specific page, by ID
+ *   captain_mint_asset_urls     — Mint asset URLs for a document's figures/pages
+ *   captain_update_document_metadata — Replace or update a document's custom metadata
+ *   captain_list_chunks         — List chunks in a collection
+ *   captain_get_chunk           — Get a specific chunk by ID
+ *   captain_get_chunk_metadata  — Get a chunk's custom metadata
+ *   captain_set_chunk_metadata  — Replace or update a chunk's custom metadata
+ *   captain_delete_chunk_metadata — Delete a chunk's custom metadata
+ *   captain_list_chunk_relations — List relations for a chunk
+ *   captain_create_chunk_relation — Create a relation between two chunks
+ *   captain_delete_chunk_relation — Delete a chunk relation
  */
 
 import { definePluginEntry } from "openclaw/plugin-sdk/plugin-entry";
@@ -542,6 +556,276 @@ export default definePluginEntry({
       { optional: true }
     );
 
-    logger.info("[Captain] Plugin registered — 16 tools available");
+    // ── captain_list_documents_v3 ────────────────────────────────
+    api.registerTool(
+      {
+        name: "captain_list_documents_v3",
+        description: "List documents in a Captain collection using the v3 API. Returns richer metadata than captain_list_documents (v2).",
+        parameters: Type.Object({
+          collection: Type.String({ description: "Collection name" }),
+          limit: Type.Optional(Type.Number({ description: "Max documents to return (default 100)", default: 100 })),
+          offset: Type.Optional(Type.Number({ description: "Pagination offset (default 0)", default: 0 })),
+        }),
+        async execute(_id, params) {
+          const config = getConfig(api.pluginConfig);
+          const qs = `?limit=${params.limit ?? 100}&offset=${params.offset ?? 0}`;
+          const data = await captainFetch(config, `collections/${encodeURIComponent(params.collection)}/documents${qs}`, { apiVersion: "v3" });
+          const docs = data.documents || [];
+          if (docs.length === 0) return { content: [{ type: "text", text: `No documents in '${params.collection}'.` }] };
+          const lines = docs.map((d: any) => `- ${d.filename || d.file_name || "Unknown"} (${d.chunk_count ?? 0} chunks, ID: ${d.document_id || d.file_id || "N/A"})`);
+          const total = data.total_count ?? docs.length;
+          return { content: [{ type: "text", text: `${total} document(s) in '${params.collection}':\n${lines.join("\n")}` }] };
+        },
+      },
+      { optional: true }
+    );
+
+    // ── captain_get_document_v3 ──────────────────────────────────
+    api.registerTool(
+      {
+        name: "captain_get_document_v3",
+        description: "Get a document from a Captain collection by ID (v3). Pass 'page' to get a specific page of a paginated document instead of the full document.",
+        parameters: Type.Object({
+          collection: Type.String({ description: "Collection name" }),
+          document_id: Type.String({ description: "Document ID" }),
+          page: Type.Optional(Type.Number({ description: "Page number to fetch, if the document has pages" })),
+        }),
+        async execute(_id, params) {
+          const config = getConfig(api.pluginConfig);
+          const path =
+            params.page != null
+              ? `collections/${encodeURIComponent(params.collection)}/documents/${encodeURIComponent(params.document_id)}/pages/${encodeURIComponent(String(params.page))}`
+              : `collections/${encodeURIComponent(params.collection)}/documents/${encodeURIComponent(params.document_id)}`;
+          const data = await captainFetch(config, path, { apiVersion: "v3" });
+          return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }] };
+        },
+      },
+      { optional: true }
+    );
+
+    // ── captain_mint_asset_urls ──────────────────────────────────
+    api.registerTool(
+      {
+        name: "captain_mint_asset_urls",
+        description: "Mint short-lived asset URLs for a document's figures and pages (e.g. to render images extracted during indexing).",
+        parameters: Type.Object({
+          collection: Type.String({ description: "Collection name" }),
+          document_id: Type.String({ description: "Document ID" }),
+          asset_ids: Type.Optional(Type.Array(Type.String(), { description: "Specific asset IDs to mint URLs for (omit for all)" })),
+        }),
+        async execute(_id, params) {
+          const config = getConfig(api.pluginConfig);
+          const body: Record<string, unknown> = {};
+          if (params.asset_ids) body.asset_ids = params.asset_ids;
+          const data = await captainFetch(
+            config,
+            `collections/${encodeURIComponent(params.collection)}/documents/${encodeURIComponent(params.document_id)}/asset-urls`,
+            { method: "POST", body, apiVersion: "v3" }
+          );
+          return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }] };
+        },
+      },
+      { optional: true }
+    );
+
+    // ── captain_update_document_metadata ─────────────────────────
+    api.registerTool(
+      {
+        name: "captain_update_document_metadata",
+        description: "Set a document's custom metadata. By default merges (PATCH) new fields in; pass replace: true to fully replace the metadata object (PUT).",
+        parameters: Type.Object({
+          collection: Type.String({ description: "Collection name" }),
+          document_id: Type.String({ description: "Document ID" }),
+          metadata: Type.Record(Type.String(), Type.Unknown(), { description: "Custom metadata key/value pairs" }),
+          replace: Type.Optional(Type.Boolean({ description: "Fully replace existing metadata instead of merging (default false)", default: false })),
+        }),
+        async execute(_id, params) {
+          const config = getConfig(api.pluginConfig);
+          logger.info(`[Captain] ${params.replace ? "Replacing" : "Updating"} metadata for document '${params.document_id}'`);
+          const data = await captainFetch(
+            config,
+            `collections/${encodeURIComponent(params.collection)}/documents/${encodeURIComponent(params.document_id)}/metadata`,
+            { method: params.replace ? "PUT" : "PATCH", body: params.metadata, apiVersion: "v3" }
+          );
+          return { content: [{ type: "text", text: `Metadata ${params.replace ? "replaced" : "updated"} for document '${params.document_id}'.\n${JSON.stringify(data, null, 2)}` }] };
+        },
+      },
+      { optional: true }
+    );
+
+    // ── captain_list_chunks ──────────────────────────────────────
+    api.registerTool(
+      {
+        name: "captain_list_chunks",
+        description: "List chunks in a Captain collection.",
+        parameters: Type.Object({
+          collection: Type.String({ description: "Collection name" }),
+          document_id: Type.Optional(Type.String({ description: "Filter to chunks from a specific document" })),
+          limit: Type.Optional(Type.Number({ description: "Max chunks to return (default 100)", default: 100 })),
+          offset: Type.Optional(Type.Number({ description: "Pagination offset (default 0)", default: 0 })),
+        }),
+        async execute(_id, params) {
+          const config = getConfig(api.pluginConfig);
+          const qs = new URLSearchParams({ limit: String(params.limit ?? 100), offset: String(params.offset ?? 0) });
+          if (params.document_id) qs.set("document_id", params.document_id);
+          const data = await captainFetch(config, `collections/${encodeURIComponent(params.collection)}/chunks?${qs.toString()}`, { apiVersion: "v3" });
+          const chunks = data.chunks || [];
+          if (chunks.length === 0) return { content: [{ type: "text", text: `No chunks in '${params.collection}'.` }] };
+          const lines = chunks.map((c: any) => `- ${c.chunk_id || c.id || "N/A"} (doc: ${c.document_id || "N/A"})`);
+          const total = data.total_count ?? chunks.length;
+          return { content: [{ type: "text", text: `${total} chunk(s) in '${params.collection}':\n${lines.join("\n")}` }] };
+        },
+      },
+      { optional: true }
+    );
+
+    // ── captain_get_chunk ─────────────────────────────────────────
+    api.registerTool(
+      {
+        name: "captain_get_chunk",
+        description: "Get a specific chunk from a Captain collection by ID, including its content and metadata.",
+        parameters: Type.Object({
+          collection: Type.String({ description: "Collection name" }),
+          chunk_id: Type.String({ description: "Chunk ID" }),
+        }),
+        async execute(_id, params) {
+          const config = getConfig(api.pluginConfig);
+          const data = await captainFetch(config, `collections/${encodeURIComponent(params.collection)}/chunks/${encodeURIComponent(params.chunk_id)}`, { apiVersion: "v3" });
+          return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }] };
+        },
+      },
+      { optional: true }
+    );
+
+    // ── captain_get_chunk_metadata ────────────────────────────────
+    api.registerTool(
+      {
+        name: "captain_get_chunk_metadata",
+        description: "Get the custom metadata attached to a specific chunk.",
+        parameters: Type.Object({
+          collection: Type.String({ description: "Collection name" }),
+          chunk_id: Type.String({ description: "Chunk ID" }),
+        }),
+        async execute(_id, params) {
+          const config = getConfig(api.pluginConfig);
+          const data = await captainFetch(config, `collections/${encodeURIComponent(params.collection)}/chunks/${encodeURIComponent(params.chunk_id)}/metadata`, { apiVersion: "v3" });
+          return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }] };
+        },
+      },
+      { optional: true }
+    );
+
+    // ── captain_set_chunk_metadata ────────────────────────────────
+    api.registerTool(
+      {
+        name: "captain_set_chunk_metadata",
+        description: "Set a chunk's custom metadata. By default merges (PATCH) new fields in; pass replace: true to fully replace the metadata object (PUT).",
+        parameters: Type.Object({
+          collection: Type.String({ description: "Collection name" }),
+          chunk_id: Type.String({ description: "Chunk ID" }),
+          metadata: Type.Record(Type.String(), Type.Unknown(), { description: "Custom metadata key/value pairs" }),
+          replace: Type.Optional(Type.Boolean({ description: "Fully replace existing metadata instead of merging (default false)", default: false })),
+        }),
+        async execute(_id, params) {
+          const config = getConfig(api.pluginConfig);
+          logger.info(`[Captain] ${params.replace ? "Replacing" : "Updating"} metadata for chunk '${params.chunk_id}'`);
+          const data = await captainFetch(
+            config,
+            `collections/${encodeURIComponent(params.collection)}/chunks/${encodeURIComponent(params.chunk_id)}/metadata`,
+            { method: params.replace ? "PUT" : "PATCH", body: params.metadata, apiVersion: "v3" }
+          );
+          return { content: [{ type: "text", text: `Metadata ${params.replace ? "replaced" : "updated"} for chunk '${params.chunk_id}'.\n${JSON.stringify(data, null, 2)}` }] };
+        },
+      },
+      { optional: true }
+    );
+
+    // ── captain_delete_chunk_metadata ────────────────────────────
+    api.registerTool(
+      {
+        name: "captain_delete_chunk_metadata",
+        description: "Delete a chunk's custom metadata.",
+        parameters: Type.Object({
+          collection: Type.String({ description: "Collection name" }),
+          chunk_id: Type.String({ description: "Chunk ID" }),
+        }),
+        async execute(_id, params) {
+          const config = getConfig(api.pluginConfig);
+          logger.info(`[Captain] Deleting metadata for chunk '${params.chunk_id}'`);
+          await captainFetch(config, `collections/${encodeURIComponent(params.collection)}/chunks/${encodeURIComponent(params.chunk_id)}/metadata`, { method: "DELETE", apiVersion: "v3" });
+          return { content: [{ type: "text", text: `Metadata deleted for chunk '${params.chunk_id}'.` }] };
+        },
+      },
+      { optional: true }
+    );
+
+    // ── captain_list_chunk_relations ─────────────────────────────
+    api.registerTool(
+      {
+        name: "captain_list_chunk_relations",
+        description: "List relations for a chunk (links to other chunks, e.g. references, follow-ups, duplicates).",
+        parameters: Type.Object({
+          collection: Type.String({ description: "Collection name" }),
+          chunk_id: Type.String({ description: "Chunk ID" }),
+        }),
+        async execute(_id, params) {
+          const config = getConfig(api.pluginConfig);
+          const data = await captainFetch(config, `collections/${encodeURIComponent(params.collection)}/chunks/${encodeURIComponent(params.chunk_id)}/relations`, { apiVersion: "v3" });
+          const relations = data.relations || [];
+          if (relations.length === 0) return { content: [{ type: "text", text: `No relations for chunk '${params.chunk_id}'.` }] };
+          const lines = relations.map((r: any) => `- ${r.relation_id || r.id || "N/A"}: ${r.relation_type || "related"} -> ${r.target_chunk_id || "N/A"}`);
+          return { content: [{ type: "text", text: `${relations.length} relation(s) for chunk '${params.chunk_id}':\n${lines.join("\n")}` }] };
+        },
+      },
+      { optional: true }
+    );
+
+    // ── captain_create_chunk_relation ────────────────────────────
+    api.registerTool(
+      {
+        name: "captain_create_chunk_relation",
+        description: "Create a relation linking one chunk to another (e.g. reference, duplicate, follow-up).",
+        parameters: Type.Object({
+          collection: Type.String({ description: "Collection name" }),
+          chunk_id: Type.String({ description: "Source chunk ID" }),
+          target_chunk_id: Type.String({ description: "Target chunk ID to relate to" }),
+          relation_type: Type.Optional(Type.String({ description: "Type of relation (e.g. 'reference', 'duplicate', 'follow_up')" })),
+        }),
+        async execute(_id, params) {
+          const config = getConfig(api.pluginConfig);
+          logger.info(`[Captain] Creating relation from chunk '${params.chunk_id}' to '${params.target_chunk_id}'`);
+          const body: Record<string, unknown> = { target_chunk_id: params.target_chunk_id };
+          if (params.relation_type) body.relation_type = params.relation_type;
+          const data = await captainFetch(
+            config,
+            `collections/${encodeURIComponent(params.collection)}/chunks/${encodeURIComponent(params.chunk_id)}/relations`,
+            { method: "POST", body, apiVersion: "v3" }
+          );
+          return { content: [{ type: "text", text: `Relation created from chunk '${params.chunk_id}' to '${params.target_chunk_id}'.\n${JSON.stringify(data, null, 2)}` }] };
+        },
+      },
+      { optional: true }
+    );
+
+    // ── captain_delete_chunk_relation ────────────────────────────
+    api.registerTool(
+      {
+        name: "captain_delete_chunk_relation",
+        description: "Delete a chunk relation by its relation ID.",
+        parameters: Type.Object({
+          collection: Type.String({ description: "Collection name" }),
+          relation_id: Type.String({ description: "Relation ID to delete (from captain_list_chunk_relations)" }),
+        }),
+        async execute(_id, params) {
+          const config = getConfig(api.pluginConfig);
+          logger.info(`[Captain] Deleting relation '${params.relation_id}'`);
+          await captainFetch(config, `collections/${encodeURIComponent(params.collection)}/relations/${encodeURIComponent(params.relation_id)}`, { method: "DELETE", apiVersion: "v3" });
+          return { content: [{ type: "text", text: `Relation '${params.relation_id}' deleted.` }] };
+        },
+      },
+      { optional: true }
+    );
+
+    logger.info("[Captain] Plugin registered — 28 tools available");
   },
 });
