@@ -65,6 +65,23 @@ Get a Captain API key at [runcaptain.com/studio](https://runcaptain.com/studio),
 | `captain_index_azure` | Index from Azure Blob Storage — container, directory, or file |
 | `captain_index_r2` | Index from Cloudflare R2 — bucket, directory, or file |
 
+**Documents & Chunks (v3):**
+
+| Tool | Description |
+|------|-------------|
+| `captain_list_documents_v3` | List documents in a collection (v3, richer than the v2 list) |
+| `captain_get_document_v3` | Get a document, or a specific page, by ID |
+| `captain_mint_asset_urls` | Mint asset URLs for a document's figures/pages |
+| `captain_update_document_metadata` | Replace or update a document's custom metadata |
+| `captain_list_chunks` | List chunks in a collection |
+| `captain_get_chunk` | Get a specific chunk by ID |
+| `captain_get_chunk_metadata` | Get a chunk's custom metadata |
+| `captain_set_chunk_metadata` | Replace or update a chunk's custom metadata |
+| `captain_delete_chunk_metadata` | Delete a chunk's custom metadata |
+| `captain_list_chunk_relations` | List relations for a chunk |
+| `captain_create_chunk_relation` | Create a relation between two chunks |
+| `captain_delete_chunk_relation` | Delete a chunk relation |
+
 To enable all optional tools:
 ```json5
 {
@@ -83,7 +100,19 @@ To enable all optional tools:
       "captain_index_s3",
       "captain_index_gcs",
       "captain_index_azure",
-      "captain_index_r2"
+      "captain_index_r2",
+      "captain_list_documents_v3",
+      "captain_get_document_v3",
+      "captain_mint_asset_urls",
+      "captain_update_document_metadata",
+      "captain_list_chunks",
+      "captain_get_chunk",
+      "captain_get_chunk_metadata",
+      "captain_set_chunk_metadata",
+      "captain_delete_chunk_metadata",
+      "captain_list_chunk_relations",
+      "captain_create_chunk_relation",
+      "captain_delete_chunk_relation"
     ]
   }
 }
