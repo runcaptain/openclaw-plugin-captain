@@ -48,9 +48,9 @@ function getConfig(pluginConfig: Record<string, unknown>): CaptainConfig {
 async function captainFetch(
   config: CaptainConfig,
   path: string,
-  options: { method?: string; body?: unknown } = {}
+  options: { method?: string; body?: unknown; apiVersion?: string } = {}
 ): Promise<any> {
-  const url = `${config.baseUrl}/${CAPTAIN_API_VERSION}/${path}`;
+  const url = `${config.baseUrl}/${options.apiVersion || CAPTAIN_API_VERSION}/${path}`;
   const response = await fetch(url, {
     method: options.method || "GET",
     headers: {
@@ -110,7 +110,7 @@ export default definePluginEntry({
           rerank_model: "gemini",
         };
 
-        const data = await captainFetch(config, `collections/${encodeURIComponent(params.collection)}/query`, { method: "POST", body });
+        const data = await captainFetch(config, `collections/${encodeURIComponent(params.collection)}/query`, { method: "POST", body, apiVersion: "v3" });
 
         const results = data.search_results || data.results || [];
         if (results.length === 0) return { content: [{ type: "text", text: "No results found." }] };
